@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Lead {
+  id        Int       @id @default(autoincrement())
+  name      String
+  category  String?
+  city      String?
+  country   String?
+  phone     String?
+  email     String?
+  website   String?
+  status    String    @default("NEW") // NEW | EMAILED, flipped when a send is logged
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  batchLeads WarmupBatchLead[]
+  emailLogs  EmailLog[]
+
+  @@map("leads")
+}
+
+// `language`/`domain` dropped from the source — those scoped leadMarketing's
+// own internal segmentation (5 fixed lead domains, 9 languages), meaningless
+// for "bring your own list." Placeholders now cover both the lead being
+// contacted ({{name}}, {{city}}, {{country}}, {{website}}) and the sender's
+// own white-label identity ({{sender_name}}, {{sender_company}}, etc, from
+// SenderIdentity) — the source hardcoded its own "Marian Pirvan/LevelCoding"
+// signature into every template, which doesn't fit a white-labeled product.
+model EmailTemplate {
+  id        Int      @id @default(autoincrement())
+  name      String
+  subject   String
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  emailLogs EmailLog[]
+
+  @@map("email_templates")
+}
+
+// Ported from leadMarketing as-is — a self-reported "I sent this" log, not
+// tied to any real delivery confirmation (see EmailLog comment in
+// warmup-batch-leads.controller.ts). `status` stays a free string even
+// though only "SENT" is ever actually written here either, same as the
+// source (OPENED/REPLIED/BOUNCED exist only as dead UI scaffolding there).
+model EmailLog {
+  id         Int      @id @default(autoincrement())
+  leadId     Int
+  templateId Int?
+  sentAt     DateTime @default(now())
+  subject    String
+  body       String
+  status     String   @default("SENT")
+  notes      String?
+
+  lead     Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  template EmailTemplate? @relation(fields: [templateId], references: [id])
+
+  @@map("email_logs")
+}
+
+// `phase` dropped (leadMarketing-internal rollout segmentation, same as
+// WhatsApp-Only CRM's WhatsAppPlan) — one active campaign at a time.
+model WarmupPlan {
+  id        Int           @id @default(autoincrement())
+  startDate DateTime
+  totalDays Int           @default(30)
+  createdAt DateTime      @default(now())
+  batches   WarmupBatch[]
+
+  @@map("warmup_plans")
+}
+
+model WarmupBatch {
+  id        Int               @id @default(autoincrement())
+  planId    Int
+  dayNumber Int
+  date      DateTime
+  quota     Int
+  plan      WarmupPlan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  leads     WarmupBatchLead[]
+
+  @@map("warmup_batches")
+}
+
+// status: PENDING | SENT | SKIPPED — matches the real 3-value enum enforced
+// in leadMarketing's app/api/warmup/batch-leads/[id]/route.ts (no REPLIED/
+// NO_ANSWER here, unlike WhatsAppBatchLead — email warmup never tracked
+// those, confirmed from the actual source code, not just the schema comment).
+model WarmupBatchLead {
+  id      Int       @id @default(autoincrement())
+  batchId Int
+  leadId  Int
+  status  String    @default("PENDING")
+  sentAt  DateTime?
+
+  batch WarmupBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  lead  Lead        @relation(fields: [leadId], references: [id])
+
+  @@unique([batchId, leadId])
+  @@map("warmup_batch_leads")
+}
+
+// New — not in leadMarketing (which hardcodes its own "Marian Pirvan /
+// LevelCoding" identity into every template). Singleton (id fixed at 1):
+// "white-label the drip engine" means the agency's own name/company/contact
+// info gets interpolated into every template instead, same BrandSettings-
+// singleton pattern as Audit Magnet CRM (#11).
+model SenderIdentity {
+  id           Int      @id @default(1)
+  senderName   String   @default("Your Name")
+  companyName  String   @default("Your Agency")
+  email        String?
+  phone        String?
+  bookingLink  String?
+  linkedinUrl  String?
+  updatedAt    DateTime @updatedAt
+
+  @@map("sender_identity")
+}
