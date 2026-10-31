@@ -1,4 +1,8 @@
-// Cloud Run entry point: the Nest API under /api and the built React app on the same origin.
+// Cloud Run entry point, one origin per demo:
+//   /        the product's sales page (landing/index.html, copied from sassdesk.com/project/<slug>/)
+//   /admin/  the CRM app itself (frontend/dist)
+//   /api/    the Nest API (and Socket.IO at /socket.io for apps with a gateway)
+// One Express app and Nest's own listen(), so WebSocket gateways attach to the server that serves.
 // (src/main.ts and api/index.ts stay as they are for local dev and the old Vercel/Render setup.)
 require('reflect-metadata');
 const fs = require('node:fs');
@@ -18,18 +22,21 @@ function find(dir, name) {
 }
 
 async function main() {
-  const { AppModule } = require(find(path.join(__dirname, 'dist'), 'app.module.js'));
-  const api = express();
-  const nest = await NestFactory.create(AppModule, new ExpressAdapter(api), { logger: ['error', 'warn'] });
-  nest.enableCors();
-  await nest.init();
-
   const web = path.join(__dirname, 'frontend', 'dist');
+  const landing = path.join(__dirname, 'landing', 'index.html');
   const app = express();
-  app.use('/api', api);
-  app.use(express.static(web));
-  app.get('*', (_req, res) => res.sendFile(path.join(web, 'index.html')));
+  // Pages first; everything else falls through to Nest under /api.
+  app.get('/', (_req, res) => (fs.existsSync(landing) ? res.sendFile(landing) : res.redirect('/admin/')));
+  app.get('/admin', (_req, res) => res.redirect(301, '/admin/'));
+  app.use('/admin', express.static(web));
+  app.get('/admin/*', (_req, res) => res.sendFile(path.join(web, 'index.html')));
+
+  const { AppModule } = require(find(path.join(__dirname, 'dist'), 'app.module.js'));
+  const nest = await NestFactory.create(AppModule, new ExpressAdapter(app), { logger: ['error', 'warn'] });
+  nest.setGlobalPrefix('api');
+  nest.enableCors();
   const port = process.env.PORT || 8080;
-  app.listen(port, () => console.log(`listening on :${port} (${process.env.TURSO_DATABASE_URL ? 'Turso' : 'local demo data'})`));
+  await nest.listen(port);
+  console.log(`listening on :${port} (${process.env.TURSO_DATABASE_URL ? 'Turso' : 'local demo data'})`);
 }
 main().catch(e => { console.error(e); process.exit(1); });
