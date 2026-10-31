@@ -27,7 +27,8 @@ async function main() {
   const app = express();
   // Pages first; everything else falls through to Nest under /api.
   app.get('/', (_req, res) => (fs.existsSync(landing) ? res.sendFile(landing) : res.redirect('/admin/')));
-  app.get('/admin', (_req, res) => res.redirect(301, '/admin/'));
+  // Express matches /admin and /admin/ alike, so only redirect the bare path (else it loops).
+  app.get('/admin', (req, res, next) => (req.originalUrl.split('?')[0] === '/admin' ? res.redirect(301, '/admin/') : next()));
   app.use('/admin', express.static(web));
   app.get('/admin/*', (_req, res) => res.sendFile(path.join(web, 'index.html')));
 
