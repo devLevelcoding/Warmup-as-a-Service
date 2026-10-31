@@ -1,0 +1,12 @@
+.git
+node_modules
+frontend/node_modules
+dist
+frontend/dist
+.env
+.env.*
+frontend/.env*
+.vercel
+frontend/.vercel
+prisma/dev.db
+prisma/dev.db-journal
